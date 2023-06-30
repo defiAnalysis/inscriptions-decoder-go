@@ -178,12 +178,19 @@ func ReadTransaction(hash *chainhash.Hash) ([]byte, error) {
 
 	client, _ := rpcclient.New(connCfg, nil)
 	fmt.Println("hash:", hash.String())
-	tx, err := client.GetRawTransactionVerbose(hash)
+	tx, err := client.GetRawTransaction(hash)
 	if err != nil {
 		fmt.Println("err:", err.Error())
 		return nil, err
 	}
 	fmt.Println("tx:", tx)
+
+	Witness := tx.MsgTx().TxIn[0].Witness[1]
+
+	fmt.Println("tx:", tx.MsgTx().TxIn[0].Witness)
+
+	contentType, _ := readContentType(Witness)
+	fmt.Printf("Content type: %s\n", contentType)
 
 	//if len(tx.MsgTx().TxIn[0].Witness) > 1 {
 	//	witness := tx.MsgTx().TxIn[0].Witness[1]
@@ -196,6 +203,7 @@ func ReadTransaction(hash *chainhash.Hash) ([]byte, error) {
 	//		return pushData[4:], nil
 	//	}
 	//}
+
 	return nil, nil
 }
 
