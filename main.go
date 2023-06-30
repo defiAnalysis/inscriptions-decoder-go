@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -171,32 +170,32 @@ func ReadTransaction(hash *chainhash.Hash) ([]byte, error) {
 
 	connCfg := &rpcclient.ConnConfig{
 		Host:         "localhost:8332",
-		User:         "",
-		Pass:         "",
+		User:         "coreincp",
+		Pass:         "oHGkzaGPRPcWX3xz",
 		HTTPPostMode: true,
 		DisableTLS:   true,
 	}
 
 	client, _ := rpcclient.New(connCfg, nil)
 	fmt.Println("hash:", hash.String())
-	tx, err := client.GetRawTransaction(hash)
+	tx, err := client.GetRawTransactionVerbose(hash)
 	if err != nil {
 		fmt.Println("err:", err.Error())
 		return nil, err
 	}
-	fmt.Println("ReadTransaction:", ReadTransaction)
+	fmt.Println("tx:", tx)
 
-	if len(tx.MsgTx().TxIn[0].Witness) > 1 {
-		witness := tx.MsgTx().TxIn[0].Witness[1]
-		pushData, err := ExtractPushData(0, witness)
-		if err != nil {
-			return nil, err
-		}
-		// skip PROTOCOL_ID
-		if pushData != nil && bytes.HasPrefix(pushData, PROTOCOL_ID) {
-			return pushData[4:], nil
-		}
-	}
+	//if len(tx.MsgTx().TxIn[0].Witness) > 1 {
+	//	witness := tx.MsgTx().TxIn[0].Witness[1]
+	//	pushData, err := ExtractPushData(0, witness)
+	//	if err != nil {
+	//		return nil, err
+	//	}
+	//	// skip PROTOCOL_ID
+	//	if pushData != nil && bytes.HasPrefix(pushData, PROTOCOL_ID) {
+	//		return pushData[4:], nil
+	//	}
+	//}
 	return nil, nil
 }
 
