@@ -160,7 +160,7 @@ func main2() {
 }
 
 func main() {
-	hash := "e331f812083ee0cd9fd2bcc3071404793f3d9eb4f4cb16d9486be31ac7f494f7"
+	hash := "6c58fafe7f845273145b55a9283084f5c30ea998fd70a6c6f25904c682e67244"
 	strHash, err := chainhash.NewHashFromStr(hash)
 	if err != nil {
 		fmt.Println("NewHashFromStr err:", err.Error())
@@ -205,28 +205,18 @@ func ReadTransaction(hash *chainhash.Hash) ([]byte, error) {
 
 	// 遍历输出脚本以找到Taproot地址
 	for _, txOut := range tx.MsgTx().TxOut {
-		fmt.Println("txOut:", txOut)
-		scriptClass, addresses, _, err := txscript.ExtractPkScriptAddrs(
-			txOut.PkScript, &chaincfg.MainNetParams,
+		pkScript := txOut.PkScript
+		scriptClass, _, _, err := txscript.ExtractPkScriptAddrs(
+			pkScript, &chaincfg.MainNetParams,
 		)
+
+		fmt.Println("scriptClass:", scriptClass)
+
 		if err != nil {
-			fmt.Println("无法解析输出脚本:", err)
+			fmt.Println("err:", err.Error())
 			return nil, nil
 		}
 
-		// 如果脚本类型是Pay-to-Witness-Public-Key-Hash (P2WPKH)
-		// 并且有一个地址，那么它就是接收者的地址
-		if scriptClass == txscript.ScriptHashTy && len(addresses) == 1 {
-			taprootAddress, err := btcutil.NewAddressWitnessScriptHash(
-				txOut.PkScript, &chaincfg.MainNetParams,
-			)
-			if err != nil {
-				fmt.Println("无法生成Taproot地址:", err)
-				return nil, nil
-			}
-
-			fmt.Println("接收者的Taproot地址:", taprootAddress.EncodeAddress())
-		}
 	}
 
 	//address := hex.EncodeToString(tx.MsgTx().TxOut[0].PkScript)
