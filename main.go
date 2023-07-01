@@ -117,7 +117,7 @@ func writeFile(data []byte, filename string) {
 	}
 }
 
-func main1() {
+func main() {
 	raw, err := hex.DecodeString(inputData)
 	if err != nil {
 		log.Fatal(err)
@@ -149,7 +149,7 @@ func main1() {
 	fmt.Println("\nDone")
 }
 
-func main() {
+func main1() {
 	hash := "e331f812083ee0cd9fd2bcc3071404793f3d9eb4f4cb16d9486be31ac7f494f7"
 	strHash, err := chainhash.NewHashFromStr(hash)
 	if err != nil {
@@ -166,7 +166,7 @@ func main() {
 }
 
 func ReadTransaction(hash *chainhash.Hash) ([]byte, error) {
-	fmt.Println("ReadTransaction:", ReadTransaction)
+	fmt.Println("ReadTransaction:")
 
 	connCfg := &rpcclient.ConnConfig{
 		Host:         "localhost:8332",
@@ -183,14 +183,19 @@ func ReadTransaction(hash *chainhash.Hash) ([]byte, error) {
 		fmt.Println("err:", err.Error())
 		return nil, err
 	}
-	fmt.Println("tx:", tx)
 
-	Witness := tx.MsgTx().TxIn[0].Witness[1]
+	address := hex.EncodeToString(tx.MsgTx().TxOut[0].PkScript)
+	fmt.Println("to address:", address)
 
-	fmt.Println("tx:", tx.MsgTx().TxIn[0].Witness)
+	value := tx.MsgTx().TxOut[0].Value
+	fmt.Println("value:", value)
 
-	contentType, _ := readContentType(Witness)
-	fmt.Printf("Content type: %s\n", contentType)
+	//Witness := tx.MsgTx().TxIn[0].Witness[1]
+	//
+	//fmt.Println("tx:", hex.EncodeToString(Witness))
+	//
+	//contentType, _ := readContentType(Witness)
+	//fmt.Printf("Content type: %s\n", contentType)
 
 	//if len(tx.MsgTx().TxIn[0].Witness) > 1 {
 	//	witness := tx.MsgTx().TxIn[0].Witness[1]
