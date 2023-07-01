@@ -205,8 +205,9 @@ func ReadTransaction(hash *chainhash.Hash) ([]byte, error) {
 
 	// 遍历输出脚本以找到Taproot地址
 	for _, txOut := range tx.MsgTx().TxOut {
+		fmt.Println("txOut:", txOut)
 		scriptClass, addresses, _, err := txscript.ExtractPkScriptAddrs(
-			txOut.PkScript, &chaincfg.TestNet3Params,
+			txOut.PkScript, &chaincfg.MainNetParams,
 		)
 		if err != nil {
 			fmt.Println("无法解析输出脚本:", err)
@@ -217,7 +218,7 @@ func ReadTransaction(hash *chainhash.Hash) ([]byte, error) {
 		// 并且有一个地址，那么它就是接收者的地址
 		if scriptClass == txscript.ScriptHashTy && len(addresses) == 1 {
 			taprootAddress, err := btcutil.NewAddressWitnessScriptHash(
-				txOut.PkScript, &chaincfg.TestNet3Params,
+				txOut.PkScript, &chaincfg.MainNetParams,
 			)
 			if err != nil {
 				fmt.Println("无法生成Taproot地址:", err)
