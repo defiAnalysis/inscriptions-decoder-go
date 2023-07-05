@@ -6,454 +6,462 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math/bits"
+	"math/big"
+	"strconv"
 	"strings"
 )
 
-var (
-	ErrDataTooBig   = errors.New("data too big")
-	ErrDataTooSmall = errors.New("not enough data")
-	ErrPartTooBig   = errors.New("part too big")
-)
-
-// Sentinel errors raised by inscriptions.
-var (
-	ErrP2PKHInscriptionNotFound = errors.New("no P2PKH inscription found")
-)
-
-var (
-	ErrInvalidPKLen      = errors.New("invalid public key length")
-	ErrInvalidOpCode     = errors.New("invalid opcode data")
-	ErrEmptyScript       = errors.New("script is empty")
-	ErrNotP2PKH          = errors.New("not a P2PKH")
-	ErrInvalidOpcodeType = errors.New("use AppendPushData for push data funcs")
-)
-
-// InscriptionArgs contains the Ordinal inscription data.
-type InscriptionArgs struct {
-	LockingScriptPrefix *Script
-	Data                []byte
-	ContentType         string
-	EnrichedArgs        *EnrichedInscriptionArgs
-}
-
-// EnrichedInscriptionArgs contains data needed for enriched inscription
-// functionality found here: https://docs.1satordinals.com/op_return.
-type EnrichedInscriptionArgs struct {
-	OpReturnData [][]byte
-}
-
-// ScriptKey types.
-const (
-	// TODO: change to p2pk/p2pkh
-	ScriptTypePubKey                = "pubkey"
-	ScriptTypePubKeyHash            = "pubkeyhash"
-	ScriptTypeNonStandard           = "nonstandard"
-	ScriptTypeEmpty                 = "empty"
-	ScriptTypeMultiSig              = "multisig"
-	ScriptTypeNullData              = "nulldata"
-	ScriptTypePubKeyHashInscription = "pubkeyhashinscription"
-)
-
-// Script type
-type Script []byte
-
-func NewScript(data []byte) Script {
-	return Script(data)
-}
-
-// NewFromHexString creates a new script from a hex encoded string.
-func NewFromHexString(s string) (*Script, error) {
-	b, err := hex.DecodeString(s)
-	if err != nil {
-		return nil, err
-	}
-	return NewFromBytes(b), nil
-}
-
-// NewFromBytes wraps a byte slice with the Script type.
-func NewFromBytes(b []byte) *Script {
-	s := Script(b)
-	return &s
-}
-
-// NewP2PKHFromPubKeyHash takes a public key hex string (in
-// compressed format) and creates a P2PKH script from it.
-func NewP2PKHFromPubKeyHash(pubKeyHash []byte) (*Script, error) {
-	b := []byte{
-		OpDUP,
-		OpHASH160,
-		OpDATA20,
-	}
-	b = append(b, pubKeyHash...)
-	b = append(b, OpEQUALVERIFY)
-	b = append(b, OpCHECKSIG)
-
-	s := Script(b)
-	return &s, nil
-}
-
-// AppendPushData takes data bytes and appends them to the script
-// with proper PUSHDATA prefixes
-func (s *Script) AppendPushData(d []byte) error {
-	p, err := EncodeParts([][]byte{d})
-	if err != nil {
-		return err
-	}
-
-	*s = append(*s, p...)
-	return nil
-}
-
-// AppendPushDataHexString takes a hex string and appends them to the
-// script with proper PUSHDATA prefixes
-func (s *Script) AppendPushDataHexString(str string) error {
-	h, err := hex.DecodeString(str)
-	if err != nil {
-		return err
-	}
-
-	return s.AppendPushData(h)
-}
-
-// AppendPushDataString takes a string and appends its UTF-8 encoding
-// to the script with proper PUSHDATA prefixes
-func (s *Script) AppendPushDataString(str string) error {
-	return s.AppendPushData([]byte(str))
-}
-
-// AppendPushDataArray takes an array of data bytes and appends them
-// to the script with proper PUSHDATA prefixes
-func (s *Script) AppendPushDataArray(d [][]byte) error {
-	p, err := EncodeParts(d)
-	if err != nil {
-		return err
-	}
-
-	*s = append(*s, p...)
-	return nil
-}
-
-// AppendPushDataStrings takes an array of strings and appends their
-// UTF-8 encoding to the script with proper PUSHDATA prefixes
-func (s *Script) AppendPushDataStrings(pushDataStrings []string) error {
-	dataBytes := make([][]byte, 0)
-	for _, str := range pushDataStrings {
-		strBytes := []byte(str)
-		dataBytes = append(dataBytes, strBytes)
-	}
-	return s.AppendPushDataArray(dataBytes)
-}
-
-// AppendOpcodes appends opcodes type to the script.
-// This does not support appending OP_PUSHDATA opcodes, so use `Script.AppendPushData` instead.
-func (s *Script) AppendOpcodes(oo ...uint8) error {
-	for _, o := range oo {
-		if OpDATA1 <= o && o <= OpPUSHDATA4 {
-			return fmt.Errorf("%w: %s", ErrInvalidOpcodeType, opCodeValues[o])
+func RawToStack(sig []byte) []byte {
+	if len(sig) == 1 {
+		if sig[0] == 0x81 {
+			return []byte{OP_1NEGATE}
+		}
+		if sig[0] == 0x80 || sig[0] == 0x00 {
+			return []byte{OP_0}
+		}
+		if sig[0] <= 16 {
+			return []byte{OP_1 - 1 + sig[0]}
 		}
 	}
-	*s = append(*s, oo...)
-	return nil
+	bb := new(bytes.Buffer)
+	if len(sig) < OP_PUSHDATA1 {
+		bb.Write([]byte{byte(len(sig))})
+	} else if len(sig) <= 0xff {
+		bb.Write([]byte{OP_PUSHDATA1})
+		bb.Write([]byte{byte(len(sig))})
+	} else if len(sig) <= 0xffff {
+		bb.Write([]byte{OP_PUSHDATA2})
+		binary.Write(bb, binary.LittleEndian, uint16(len(sig)))
+	} else {
+		bb.Write([]byte{OP_PUSHDATA4})
+		binary.Write(bb, binary.LittleEndian, uint32(len(sig)))
+	}
+	bb.Write(sig)
+	return bb.Bytes()
 }
 
-// String implements the stringer interface and returns the hex string of script.
-func (s *Script) String() string {
-	return hex.EncodeToString(*s)
+func int2scr(v int64) []byte {
+	if v == -1 || v >= 1 && v <= 16 {
+		return []byte{byte(v + OP_1 - 1)}
+	}
+
+	neg := v < 0
+	if neg {
+		v = -v
+	}
+	bn := big.NewInt(v)
+	bts := bn.Bytes()
+	if (bts[0] & 0x80) != 0 {
+		if neg {
+			bts = append([]byte{0x80}, bts...)
+		} else {
+			bts = append([]byte{0x00}, bts...)
+		}
+	} else if neg {
+		bts[0] |= 0x80
+	}
+
+	sig := make([]byte, len(bts))
+	for i := range bts {
+		sig[len(bts)-i-1] = bts[i]
+	}
+
+	return RawToStack(sig)
 }
 
-// ToASM returns the string ASM opcodes of the script.
-func (s *Script) ToASM() (string, error) {
-	if s == nil || len(*s) == 0 {
-		return "", nil
-	}
-	parts, err := DecodeParts(*s)
-	// if err != nil, we will append [error] to the ASM script below (as done in the node).
-
-	data := false
-	if len(*s) > 1 && ((*s)[0] == OpRETURN || ((*s)[0] == OpFALSE && (*s)[1] == OpRETURN)) {
-		data = true
-	}
-
-	var asm strings.Builder
-
-	for _, p := range parts {
-		asm.WriteRune(' ')
-		if len(p) == 1 {
-			if data && p[0] != 0x6a {
-				asm.WriteString(fmt.Sprintf("%d", p[0]))
+func DecodeScript(pk string) (out []byte, e error) {
+	xx := strings.Split(pk, " ")
+	for i := range xx {
+		v, er := strconv.ParseInt(xx[i], 10, 64)
+		if er == nil {
+			switch {
+			case v == -1:
+				out = append(out, 0x4f)
+			case v == 0:
+				out = append(out, 0x0)
+			case v > 0 && v <= 16:
+				out = append(out, 0x50+byte(v))
+			default:
+				out = append(out, int2scr(v)...)
+			}
+		} else if len(xx[i]) > 2 && xx[i][:2] == "0x" {
+			d, _ := hex.DecodeString(xx[i][2:])
+			out = append(out, d...)
+		} else {
+			if len(xx[i]) >= 2 && xx[i][0] == '\'' && xx[i][len(xx[i])-1] == '\'' {
+				out = append(out, RawToStack([]byte(xx[i][1:len(xx[i])-1]))...)
 			} else {
-				asm.WriteString(opCodeValues[p[0]])
+				if len(xx[i]) > 3 && xx[i][:3] == "OP_" {
+					xx[i] = xx[i][3:]
+				}
+				switch xx[i] {
+				case "RESERVED":
+					out = append(out, 0x50)
+				case "NOP":
+					out = append(out, 0x61)
+				case "VER":
+					out = append(out, 0x62)
+				case "IF":
+					out = append(out, 0x63)
+				case "NOTIF":
+					out = append(out, 0x64)
+				case "VERIF":
+					out = append(out, 0x65)
+				case "VERNOTIF":
+					out = append(out, 0x66)
+				case "ELSE":
+					out = append(out, 0x67)
+				case "ENDIF":
+					out = append(out, 0x68)
+				case "VERIFY":
+					out = append(out, 0x69)
+				case "RETURN":
+					out = append(out, 0x6a)
+				case "TOALTSTACK":
+					out = append(out, 0x6b)
+				case "FROMALTSTACK":
+					out = append(out, 0x6c)
+				case "2DROP":
+					out = append(out, 0x6d)
+				case "2DUP":
+					out = append(out, 0x6e)
+				case "3DUP":
+					out = append(out, 0x6f)
+				case "2OVER":
+					out = append(out, 0x70)
+				case "2ROT":
+					out = append(out, 0x71)
+				case "2SWAP":
+					out = append(out, 0x72)
+				case "IFDUP":
+					out = append(out, 0x73)
+				case "DEPTH":
+					out = append(out, 0x74)
+				case "DROP":
+					out = append(out, 0x75)
+				case "DUP":
+					out = append(out, 0x76)
+				case "NIP":
+					out = append(out, 0x77)
+				case "OVER":
+					out = append(out, 0x78)
+				case "PICK":
+					out = append(out, 0x79)
+				case "ROLL":
+					out = append(out, 0x7a)
+				case "ROT":
+					out = append(out, 0x7b)
+				case "SWAP":
+					out = append(out, 0x7c)
+				case "TUCK":
+					out = append(out, 0x7d)
+				case "CAT":
+					out = append(out, 0x7e)
+				case "SUBSTR":
+					out = append(out, 0x7f)
+				case "LEFT":
+					out = append(out, 0x80)
+				case "RIGHT":
+					out = append(out, 0x81)
+				case "SIZE":
+					out = append(out, 0x82)
+				case "INVERT":
+					out = append(out, 0x83)
+				case "AND":
+					out = append(out, 0x84)
+				case "OR":
+					out = append(out, 0x85)
+				case "XOR":
+					out = append(out, 0x86)
+				case "EQUAL":
+					out = append(out, 0x87)
+				case "EQUALVERIFY":
+					out = append(out, 0x88)
+				case "RESERVED1":
+					out = append(out, 0x89)
+				case "RESERVED2":
+					out = append(out, 0x8a)
+				case "1ADD":
+					out = append(out, 0x8b)
+				case "1SUB":
+					out = append(out, 0x8c)
+				case "2MUL":
+					out = append(out, 0x8d)
+				case "2DIV":
+					out = append(out, 0x8e)
+				case "NEGATE":
+					out = append(out, 0x8f)
+				case "ABS":
+					out = append(out, 0x90)
+				case "NOT":
+					out = append(out, 0x91)
+				case "0NOTEQUAL":
+					out = append(out, 0x92)
+				case "ADD":
+					out = append(out, 0x93)
+				case "SUB":
+					out = append(out, 0x94)
+				case "MUL":
+					out = append(out, 0x95)
+				case "DIV":
+					out = append(out, 0x96)
+				case "MOD":
+					out = append(out, 0x97)
+				case "LSHIFT":
+					out = append(out, 0x98)
+				case "RSHIFT":
+					out = append(out, 0x99)
+				case "BOOLAND":
+					out = append(out, 0x9a)
+				case "BOOLOR":
+					out = append(out, 0x9b)
+				case "NUMEQUAL":
+					out = append(out, 0x9c)
+				case "NUMEQUALVERIFY":
+					out = append(out, 0x9d)
+				case "NUMNOTEQUAL":
+					out = append(out, 0x9e)
+				case "LESSTHAN":
+					out = append(out, 0x9f)
+				case "GREATERTHAN":
+					out = append(out, 0xa0)
+				case "LESSTHANOREQUAL":
+					out = append(out, 0xa1)
+				case "GREATERTHANOREQUAL":
+					out = append(out, 0xa2)
+				case "MIN":
+					out = append(out, 0xa3)
+				case "MAX":
+					out = append(out, 0xa4)
+				case "WITHIN":
+					out = append(out, 0xa5)
+				case "RIPEMD160":
+					out = append(out, 0xa6)
+				case "SHA1":
+					out = append(out, 0xa7)
+				case "SHA256":
+					out = append(out, 0xa8)
+				case "HASH160":
+					out = append(out, 0xa9)
+				case "HASH256":
+					out = append(out, 0xaa)
+				case "CODESEPARATOR":
+					out = append(out, 0xab)
+				case "CHECKSIG":
+					out = append(out, 0xac)
+				case "CHECKSIGVERIFY":
+					out = append(out, 0xad)
+				case "CHECKMULTISIG":
+					out = append(out, 0xae)
+				case "CHECKMULTISIGVERIFY":
+					out = append(out, 0xaf)
+				case "NOP1":
+					out = append(out, 0xb0)
+				case "NOP2":
+					out = append(out, 0xb1)
+				case "CHECKLOCKTIMEVERIFY":
+					out = append(out, 0xb1)
+				case "NOP3":
+					out = append(out, 0xb2)
+				case "CHECKSEQUENCEVERIFY":
+					out = append(out, 0xb2)
+				case "NOP4":
+					out = append(out, 0xb3)
+				case "NOP5":
+					out = append(out, 0xb4)
+				case "NOP6":
+					out = append(out, 0xb5)
+				case "NOP7":
+					out = append(out, 0xb6)
+				case "NOP8":
+					out = append(out, 0xb7)
+				case "NOP9":
+					out = append(out, 0xb8)
+				case "NOP10":
+					out = append(out, 0xb9)
+				case "CHECKSIGADD":
+					out = append(out, 0xba)
+				case "":
+					out = append(out, []byte{}...)
+				default:
+					dat, _ := hex.DecodeString(xx[i])
+					if dat == nil {
+						return nil, errors.New("Syntax error: " + xx[i])
+					}
+					out = append(out, RawToStack(dat)...)
+				}
+			}
+		}
+	}
+	return
+}
+
+func ScriptToText(p []byte) (out []string, e error) {
+	var opcnt, idx int
+	for idx < len(p) {
+		opcode, vchPushValue, n, er := GetOpcode(p[idx:])
+
+		if er != nil {
+			e = errors.New("ScriptToText: " + er.Error())
+			println("C", idx, hex.EncodeToString(p))
+			return
+		}
+		idx += n
+
+		if vchPushValue != nil && len(vchPushValue) > MAX_SCRIPT_ELEMENT_SIZE {
+			e = errors.New(fmt.Sprint("ScriptToText: vchPushValue too long ", len(vchPushValue)))
+			return
+		}
+
+		if opcode > 0x60 {
+			opcnt++
+			if opcnt > 201 {
+				e = errors.New("ScriptToText: evalScript has too many opcodes")
+				return
+			}
+		}
+
+		if opcode == 0x7e /*OP_CAT*/ ||
+			opcode == 0x7f /*OP_SUBSTR*/ ||
+			opcode == 0x80 /*OP_LEFT*/ ||
+			opcode == 0x81 /*OP_RIGHT*/ ||
+			opcode == 0x83 /*OP_INVERT*/ ||
+			opcode == 0x84 /*OP_AND*/ ||
+			opcode == 0x85 /*OP_OR*/ ||
+			opcode == 0x86 /*OP_XOR*/ ||
+			opcode == 0x8d /*OP_2MUL*/ ||
+			opcode == 0x8e /*OP_2DIV*/ ||
+			opcode == 0x95 /*OP_MUL*/ ||
+			opcode == 0x96 /*OP_DIV*/ ||
+			opcode == 0x97 /*OP_MOD*/ ||
+			opcode == 0x98 /*OP_LSHIFT*/ ||
+			opcode == 0x99 /*OP_RSHIFT*/ {
+			e = errors.New(fmt.Sprint("ScriptToText: Unsupported opcode ", opcode))
+			return
+		}
+
+		var sel string
+		if 0 <= opcode && opcode <= OP_PUSHDATA4 {
+			if len(vchPushValue) == 0 {
+				sel = "OP_FALSE"
+			} else {
+				sel = hex.EncodeToString(vchPushValue)
 			}
 		} else {
-			if data && len(p) <= 4 {
-				b := make([]byte, 0)
-				b = append(b, p...)
-				for i := 0; i < 4-len(p); i++ {
-					b = append(b, 0)
-				}
-				asm.WriteString(fmt.Sprintf("%d", binary.LittleEndian.Uint32(b)))
-			} else {
-				asm.WriteString(hex.EncodeToString(p))
+			switch {
+			case opcode == 0x4f:
+				sel = "1NEGATE"
+			case opcode >= 0x50 && opcode <= 0x60:
+				sel = fmt.Sprint(opcode - 0x50)
+			case opcode == 0x61:
+				sel = "NOP"
+			case opcode == 0x63:
+				sel = "IF"
+			case opcode == 0x64:
+				sel = "NOTIF"
+			case opcode == 0x67:
+				sel = "ELSE"
+			case opcode == 0x68:
+				sel = "ENDIF"
+			case opcode == 0x69:
+				sel = "VERIFY"
+			case opcode == 0x6a:
+				sel = "RETURN"
+			case opcode == 0x74:
+				sel = "DEPTH"
+			case opcode == 0x75:
+				sel = "DROP"
+			case opcode == 0x76:
+				sel = "DUP"
+			case opcode == 0x87:
+				sel = "EQUAL"
+			case opcode == 0x88:
+				sel = "EQUALVERIFY"
+			case opcode == 0xa9:
+				sel = "HASH160"
+			case opcode == 0xac:
+				sel = "CHECKSIG"
+			case opcode == 0xad:
+				sel = "CHECKSIGVERIFY"
+			case opcode == 0xae:
+				sel = "CHECKMULTISIG"
+			case opcode == 0xb2:
+				sel = "CHECKSEQUENCEVERIFY"
+			default:
+				sel = fmt.Sprintf("0x%02X", opcode)
 			}
+			sel = "OP_" + sel
 		}
+		out = append(out, sel)
 	}
-
-	if err != nil {
-		asm.WriteString(" [error]")
-	}
-
-	return asm.String()[1:], nil
+	return
 }
 
-// IsP2PKH returns true if this is a pay to pubkey hash output script.
-func (s *Script) IsP2PKH() bool {
-	b := []byte(*s)
-	return len(b) == 25 &&
-		b[0] == OpDUP &&
-		b[1] == OpHASH160 &&
-		b[2] == OpDATA20 &&
-		b[23] == OpEQUALVERIFY &&
-		b[24] == OpCHECKSIG
-}
+// ExtractOrdFile extracts the file (inscription) stored inside the segwit data
+// ... as per github.com/casey/ord
+//
+//	p  - is the segwith data returned by transaction's ContainsOrdFile()
+//
+// returns file type and the file itself
+func ExtractOrdFile(p []byte) (typ string, data []byte, e error) {
+	var opcode_idx int
+	var byte_idx int
 
-// IsP2PK returns true if this is a public key output script.
-func (s *Script) IsP2PK() bool {
-	parts, err := DecodeParts(*s)
-	if err != nil {
-		return false
-	}
-
-	if len(parts) == 2 && len(parts[0]) > 0 && parts[1][0] == OpCHECKSIG {
-		pubkey := parts[0]
-		version := pubkey[0]
-
-		if (version == 0x04 || version == 0x06 || version == 0x07) && len(pubkey) == 65 {
-			return true
-		} else if (version == 0x03 || version == 0x02) && len(pubkey) == 33 {
-			return true
+	for byte_idx < len(p) {
+		opcode, vchPushValue, n, er := GetOpcode(p[byte_idx:])
+		if er != nil {
+			e = errors.New("ExtractOrdinaryFile: " + er.Error())
+			return
 		}
-	}
-	return false
-}
 
-// IsP2SH returns true if this is a p2sh output script.
-// TODO: remove all p2sh stuff from repo
-func (s *Script) IsP2SH() bool {
-	b := []byte(*s)
+		byte_idx += n
 
-	return len(b) == 23 &&
-		b[0] == OpHASH160 &&
-		b[1] == OpDATA20 &&
-		b[22] == OpEQUAL
-}
-
-// IsData returns true if this is a data output script. This
-// means the script starts with OP_RETURN or OP_FALSE OP_RETURN.
-func (s *Script) IsData() bool {
-	b := []byte(*s)
-
-	return (len(b) > 0 && b[0] == OpRETURN) ||
-		(len(b) > 1 && b[0] == OpFALSE && b[1] == OpRETURN)
-}
-
-// IsInscribed returns true if this script includes an
-// inscription with any prepended script (not just p2pkh).
-func (s *Script) IsInscribed() bool {
-	isncPattern, _ := hex.DecodeString("0063036f7264")
-	return bytes.Contains(*s, isncPattern)
-}
-
-// IsP2PKHInscription checks if it's a standard
-// inscription with a P2PKH prefix script.
-func (s *Script) IsP2PKHInscription() bool {
-	p, err := DecodeParts(*s)
-	if err != nil {
-		return false
-	}
-
-	return isP2PKHInscriptionHelper(p)
-}
-
-// isP2PKHInscriptionHelper helper so that we don't need to call
-// `DecodeParts()` multiple times, such as in `ParseInscription()`
-func isP2PKHInscriptionHelper(parts [][]byte) bool {
-	if len(parts) < 13 {
-		return false
-	}
-	valid := parts[0][0] == OpDUP &&
-		parts[1][0] == OpHASH160 &&
-		parts[3][0] == OpEQUALVERIFY &&
-		parts[4][0] == OpCHECKSIG &&
-		parts[5][0] == OpFALSE &&
-		parts[6][0] == OpIF &&
-		parts[7][0] == 0x6f && parts[7][1] == 0x72 && parts[7][2] == 0x64 && // op_push "ord"
-		parts[8][0] == OpTRUE &&
-		parts[10][0] == OpFALSE &&
-		parts[12][0] == OpENDIF
-
-	if len(parts) > 13 {
-		return parts[13][0] == OpRETURN && valid
-	}
-	return valid
-}
-
-// ParseInscription parses the script to
-// return the inscription found. Will return
-// an error if the script doesn't contain
-// any inscriptions.
-func (s *Script) ParseInscription() (*InscriptionArgs, error) {
-	p, err := DecodeParts(*s)
-	if err != nil {
-		return nil, err
-	}
-
-	if !isP2PKHInscriptionHelper(p) {
-		return nil, ErrP2PKHInscriptionNotFound
-	}
-
-	// FIXME: make it dynamic based on order.
-	// right now if the content type and the content change order
-	// then this will fail. My understanding is that the content
-	// always needs to be last and the previous fields can be
-	// reordered - this is based on the original ordinals
-	// indexer: https://github.com/casey/ord
-	return &InscriptionArgs{
-		LockingScriptPrefix: s.Slice(0, 25),
-		Data:                p[11],
-		ContentType:         string(p[9]),
-		// EnrichedArgs: , // TODO:
-	}, nil
-}
-
-// Slice a script to get back a subset of that script.
-func (s *Script) Slice(start, end uint64) *Script {
-	ss := *s
-	sss := ss[start:end]
-	return &sss
-}
-
-// IsMultiSigOut returns true if this is a multisig output script.
-func (s *Script) IsMultiSigOut() bool {
-	parts, err := DecodeParts(*s)
-	if err != nil {
-		return false
-	}
-
-	if len(parts) < 3 {
-		return false
-	}
-
-	if !isSmallIntOp(parts[0][0]) {
-		return false
-	}
-
-	for i := 1; i < len(parts)-2; i++ {
-		if len(parts[i]) < 1 {
-			return false
+		switch opcode_idx {
+		case 0:
+			if len(vchPushValue) != 32 {
+				e = errors.New("opcode_idx 0: No push data 32 bytes")
+				return
+			}
+		case 1:
+			if opcode != OP_CHECKSIG {
+				e = errors.New("opcode_idx 1: OP_CHECKSIG missing")
+				return
+			}
+		case 2:
+			if opcode != OP_FALSE {
+				e = errors.New("opcode_idx 2: OP_FALSE missing")
+				return
+			}
+		case 3:
+			if opcode != OP_IF {
+				e = errors.New("opcode_idx 3: OP_IF missing")
+				return
+			}
+		case 4:
+			if len(vchPushValue) != 3 || string(vchPushValue) != "ord" {
+				e = errors.New("opcode_idx 4: missing ord string")
+				return
+			}
+		case 5:
+			if len(vchPushValue) != 1 || vchPushValue[0] != 1 {
+				//println("opcode_idx 5:", hex.EncodeToString(vchPushValue), string(vchPushValue), "-ignore")
+				opcode_idx-- // ignore this one
+			}
+		case 6:
+			typ = string(vchPushValue)
+		case 7:
+			if opcode != OP_FALSE {
+				e = errors.New("opcode_idx 7: OP_FALSE missing")
+				return
+			}
+		default:
+			if opcode == OP_ENDIF {
+				return
+			}
+			data = append(data, vchPushValue...)
 		}
+
+		opcode_idx++
 	}
-
-	return len(parts[len(parts)-2]) > 0 && isSmallIntOp(parts[len(parts)-2][0]) && len(parts[len(parts)-1]) > 0 &&
-		parts[len(parts)-1][0] == OpCHECKMULTISIG
-}
-
-func isSmallIntOp(opcode byte) bool {
-	return opcode == OpZERO || (opcode >= OpONE && opcode <= Op16)
-}
-
-// ScriptType returns the type of script this is as a string.
-func (s *Script) ScriptType() string {
-	if len(*s) == 0 {
-		return ScriptTypeEmpty
-	}
-	if s.IsP2PKH() {
-		return ScriptTypePubKeyHash
-	}
-	if s.IsP2PK() {
-		return ScriptTypePubKey
-	}
-	if s.IsMultiSigOut() {
-		return ScriptTypeMultiSig
-	}
-	if s.IsData() {
-		return ScriptTypeNullData
-	}
-	if s.IsP2PKHInscription() {
-		return ScriptTypePubKeyHashInscription
-	}
-	return ScriptTypeNonStandard
-}
-
-// Equals will compare the script to b and return true if they match.
-func (s *Script) Equals(b *Script) bool {
-	return bytes.Equal(*s, *b)
-}
-
-// EqualsBytes will compare the script to a byte representation of a
-// script, b, and return true if they match.
-func (s *Script) EqualsBytes(b []byte) bool {
-	return bytes.Equal(*s, b)
-}
-
-// EqualsHex will compare the script to a hex string h,
-// if they match then true is returned otherwise false.
-func (s *Script) EqualsHex(h string) bool {
-	return s.String() == h
-}
-
-// MinPushSize returns the minimum size of a push operation of the given data.
-func MinPushSize(bb []byte) int {
-	l := len(bb)
-
-	// data length is larger than max supported by the bitcoin protocol
-	if bits.UintSize == 64 && int64(l) > 0xffffffff {
-		return 0
-	}
-
-	if l == 0 {
-		return 1
-	}
-
-	if l == 1 {
-		// data can be represented as Op1 to Op16, or OpNegate
-		if bb[0] <= 16 || bb[0] == 0x81 {
-			// OpX
-			return 1
-		}
-		// OP_DATA_1 + data
-		return 2
-	}
-
-	// OP_DATA_X + data
-	if l <= 75 {
-		return l + 1
-	}
-	// OP_PUSHDATA1 + length byte + data
-	if l <= 0xff {
-		return l + 2
-	}
-	// OP_PUSHDATA2 + two length bytes + data
-	if l <= 0xffff {
-		return l + 3
-	}
-
-	// OP_PUSHDATA4 + four length bytes + data
-	return l + 5
-}
-
-// MarshalJSON convert script into json.
-func (s *Script) MarshalJSON() ([]byte, error) {
-	return []byte(fmt.Sprintf(`"%s"`, s.String())), nil
-}
-
-// UnmarshalJSON covert from json into *bscript.Script.
-func (s *Script) UnmarshalJSON(bb []byte) error {
-	ss, err := NewFromHexString(string(bytes.Trim(bb, `"`)))
-	if err != nil {
-		return err
-	}
-
-	*s = *ss
-	return nil
+	return
 }
