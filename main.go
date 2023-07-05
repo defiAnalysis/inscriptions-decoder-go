@@ -5,11 +5,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
-	"github.com/btcsuite/btcd/txscript"
 	"log"
 	"os"
 	"strings"
@@ -122,9 +119,9 @@ func writeFile(data []byte, filename string) {
 func main11() {
 	//flag := IsTaprootAddress("512023b7432f5010b5fd9178639462e658757b2dcc4cb2dffcb4ab6c8976350d09ba")
 	//"0014b5a33d86d07fba16e6d0ef3ced5e1d81c74a21e9"
-	golangAddress := "512023b7432f5010b5fd9178639462e658757b2dcc4cb2dffcb4ab6c8976350d09ba"
+	//golangAddress := "512023b7432f5010b5fd9178639462e658757b2dcc4cb2dffcb4ab6c8976350d09ba"
 
-	IsTaprootAddress(golangAddress)
+	//IsTaprootAddress(golangAddress)
 }
 
 func main2() {
@@ -194,6 +191,33 @@ func ReadTransaction(hash *chainhash.Hash) ([]byte, error) {
 		return nil, err
 	}
 
+	if len(tx.MsgTx().TxIn[0].Witness) > 1 {
+		raw := tx.MsgTx().TxIn[0].Witness[1]
+
+		pointer, _ = getInitialPosition(raw)
+
+		contentType, _ := readContentType(raw)
+		fmt.Printf("Content type: %s\n", contentType)
+		if readBytes(raw, 1)[0] != byte(0x00) {
+			fmt.Println("Error: Invalid byte sequence")
+			os.Exit(1)
+		}
+
+		data := []byte{}
+
+		OP_ENDIF := byte(0x68)
+		opcode := readBytes(raw, 1)[0]
+		for opcode != OP_ENDIF {
+			chunk, _ := readPushdata(raw, opcode)
+			data = append(data, chunk...)
+			opcode = readBytes(raw, 1)[0]
+		}
+
+		fmt.Println("data:", string(data))
+
+		return data, nil
+	}
+
 	//// 解析交易
 	//txBytes, err := btcutil.DecodeHex(tx)
 	//if err != nil {
@@ -204,20 +228,20 @@ func ReadTransaction(hash *chainhash.Hash) ([]byte, error) {
 	//msgTx := btcutil.NewTx(txBytes)
 
 	// 遍历输出脚本以找到Taproot地址
-	for _, txOut := range tx.MsgTx().TxOut {
-		pkScript := txOut.PkScript
-		scriptClass, _, _, err := txscript.ExtractPkScriptAddrs(
-			pkScript, &chaincfg.MainNetParams,
-		)
-
-		fmt.Println("scriptClass:", scriptClass)
-
-		if err != nil {
-			fmt.Println("err:", err.Error())
-			return nil, nil
-		}
-
-	}
+	//for _, txOut := range tx.MsgTx().TxOut {
+	//	pkScript := txOut.PkScript
+	//	_, address, _, err := txscript.ExtractPkScriptAddrs(
+	//		pkScript, &chaincfg.MainNetParams,
+	//	)
+	//
+	//	fmt.Println("address:", address)
+	//
+	//	if err != nil {
+	//		fmt.Println("err:", err.Error())
+	//		return nil, nil
+	//	}
+	//
+	//}
 
 	//address := hex.EncodeToString(tx.MsgTx().TxOut[0].PkScript)
 	//fmt.Println("to address:", address)
@@ -231,7 +255,7 @@ func ReadTransaction(hash *chainhash.Hash) ([]byte, error) {
 	//
 	//contentType, _ := readContentType(Witness)
 	//fmt.Printf("Content type: %s\n", contentType)
-
+	//
 	//if len(tx.MsgTx().TxIn[0].Witness) > 1 {
 	//	witness := tx.MsgTx().TxIn[0].Witness[1]
 	//	pushData, err := ExtractPushData(0, witness)
@@ -245,84 +269,4 @@ func ReadTransaction(hash *chainhash.Hash) ([]byte, error) {
 	//}
 
 	return nil, nil
-}
-
-func ExtractPushData(version uint16, pkScript []byte) ([]byte, error) {
-	type templateMatch struct {
-		expectPushData bool
-		maxPushDatas   int
-		opcode         byte
-		extractedData  []byte
-	}
-	var template = [6]templateMatch{
-		{opcode: txscript.OP_FALSE},
-		{opcode: txscript.OP_IF},
-		{expectPushData: true, maxPushDatas: 10},
-		{opcode: txscript.OP_ENDIF},
-		{expectPushData: true, maxPushDatas: 1},
-		{opcode: txscript.OP_CHECKSIG},
-	}
-
-	var templateOffset int
-	tokenizer := txscript.MakeScriptTokenizer(version, pkScript)
-out:
-	for tokenizer.Next() {
-		// Not a rollkit script if it has more opcodes than expected in the
-		// template.
-		if templateOffset >= len(template) {
-			return nil, nil
-		}
-
-		op := tokenizer.Opcode()
-		tplEntry := &template[templateOffset]
-		if tplEntry.expectPushData {
-			for i := 0; i < tplEntry.maxPushDatas; i++ {
-				data := tokenizer.Data()
-				if data == nil {
-					break out
-				}
-				tplEntry.extractedData = append(tplEntry.extractedData, data...)
-				tokenizer.Next()
-			}
-		} else if op != tplEntry.opcode {
-			return nil, nil
-		}
-
-		templateOffset++
-	}
-	// TODO: skipping err checks
-	return template[2].extractedData, nil
-}
-
-func IsTaprootAddress(pkScriptHex string) bool {
-	// 原始交易的TxOut[0].PkScript
-
-	// 将PkScript从十六进制字符串解码为字节数组
-	pkScript, err := hex.DecodeString(pkScriptHex)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// 解码PkScript
-	scriptClass, addresses, _, err := txscript.ExtractPkScriptAddrs(pkScript, &chaincfg.MainNetParams)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// 确定脚本类型
-	switch scriptClass {
-	case txscript.PubKeyHashTy:
-		// 如果是P2WPKH脚本类型，转换为Taproot地址
-		address := addresses[0].(*btcutil.AddressWitnessPubKeyHash)
-		taprootAddress, err := btcutil.NewAddressWitnessScriptHash(address.ScriptAddress(), &chaincfg.MainNetParams)
-		if err != nil {
-			log.Fatal(err)
-		}
-		fmt.Println("Taproot Address:", taprootAddress.String())
-
-	default:
-		log.Fatal("Unsupported script type.")
-	}
-
-	return true
 }
