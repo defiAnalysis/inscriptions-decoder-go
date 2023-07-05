@@ -41,7 +41,6 @@ func GetBlock(height int64) error {
 
 	for _, rawTx := range rawBlock.Transactions {
 		for _, value := range rawTx.TxIn {
-			fmt.Println("len:", len(value.Witness))
 			if len(value.Witness) <= 1 {
 				continue
 			}
@@ -55,7 +54,7 @@ func GetBlock(height int64) error {
 				Index:       value.PreviousOutPoint.Index,
 				Txinwitness: value.Witness[1],
 			}
-			fmt.Println("Hash : %s,Index:%d,Txinwitness:%s\n", transaction.Hash, transaction.Index, transaction.Txinwitness)
+
 			datatype, data, err := ExtractOrdFile(transaction.Txinwitness)
 
 			if err != nil {
@@ -70,7 +69,7 @@ func GetBlock(height int64) error {
 					ext = tps[1]
 				}
 
-				fmt.Println("Hash: %s,type:%s,data:%s", transaction.Hash, ext, data)
+				fmt.Println("Hash: %s,type:%s,data:%s", transaction.Hash, ext, string(data))
 			}
 		}
 	}
