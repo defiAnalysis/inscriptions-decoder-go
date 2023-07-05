@@ -40,15 +40,15 @@ func GetBlock(height int64) error {
 	}
 
 	for _, rawTx := range rawBlock.Transactions {
-		for i, value := range rawTx.TxIn {
-			if len(value.Witness[i]) < 40 || !isInscribed(value.Witness[i]) {
+		for _, value := range rawTx.TxIn {
+			if len(value.Witness[1]) < 40 || !isInscribed(value.Witness[1]) {
 				continue
 			}
 
 			transaction := Transaction{
 				Hash:        value.PreviousOutPoint.Hash.String(),
 				Index:       value.PreviousOutPoint.Index,
-				Txinwitness: value.Witness[i],
+				Txinwitness: value.Witness[1],
 			}
 			fmt.Println("Hash : %s,Index:%d,Txinwitness:%s\n", transaction.Hash, transaction.Index, transaction.Txinwitness)
 			datatype, data, err := ExtractOrdFile(transaction.Txinwitness)
