@@ -51,6 +51,8 @@ func main() {
 		log.Fatal(err)
 	}
 
+	fmt.Println("block:", block)
+
 	// 遍历每个交易并打印详细信息
 	for _, tx := range block.Transactions {
 		fmt.Println("Transaction ID:", tx.TxID)
