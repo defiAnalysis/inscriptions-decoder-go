@@ -157,7 +157,7 @@ func main2() {
 }
 
 func main() {
-	hash := "6c58fafe7f845273145b55a9283084f5c30ea998fd70a6c6f25904c682e67244"
+	hash := "7c62902993ba36491a1c5bfe6547bbad9c21958717ed4aa2878c79c20cd87968"
 	strHash, err := chainhash.NewHashFromStr(hash)
 	if err != nil {
 		fmt.Println("NewHashFromStr err:", err.Error())
