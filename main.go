@@ -42,10 +42,10 @@ func GetBlock(height int64) error {
 	for _, rawTx := range rawBlock.Transactions {
 		for _, value := range rawTx.TxIn {
 			fmt.Println("len:", len(value.Witness))
-			if len(value.Witness) < 1 {
+			if len(value.Witness) <= 1 {
 				continue
 			}
-			
+
 			if len(value.Witness[1]) < 40 || !isInscribed(value.Witness[1]) {
 				continue
 			}
