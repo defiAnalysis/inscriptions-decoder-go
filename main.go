@@ -58,7 +58,6 @@ func GetBlock(height int64) error {
 			datatype, data, err := ExtractOrdFile(transaction.Txinwitness)
 
 			if err != nil {
-				println(transaction.Hash, err.Error())
 				continue
 			}
 			//println("block", sl.Height(), "has tx", tx.Hash.String(), "len", string(typ), "-", len(data), "bytes")
@@ -69,7 +68,7 @@ func GetBlock(height int64) error {
 					ext = tps[1]
 				}
 
-				fmt.Println("Hash: %s,type:%s,data:%s", transaction.Hash, ext, string(data))
+				fmt.Println("Hash: %s,type:%s,data:%s", transaction.Hash, transaction.Index, ext, string(data))
 			}
 		}
 	}
