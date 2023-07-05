@@ -40,6 +40,7 @@ func main() {
 	// 发起HTTP请求获取区块数据
 	resp, err := http.Get(nodeURL + "/rest/block/" + blockHash + ".json")
 	if err != nil {
+		fmt.Println("=====================")
 		log.Fatal(err)
 	}
 	defer resp.Body.Close()
