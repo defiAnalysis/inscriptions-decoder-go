@@ -103,7 +103,7 @@ func GetBlock1(height int64) error {
 			fmt.Println("Hash:", value.PreviousOutPoint.Hash)
 			fmt.Println("Index:", value.PreviousOutPoint.Index)
 
-			key := fmt.Sprintf("%s%d", value.PreviousOutPoint.Hash.String(), value.PreviousOutPoint.Index)
+			key := fmt.Sprintf("%s%s%d", value.PreviousOutPoint.Hash.String(), "i", value.PreviousOutPoint.Index)
 			fmt.Println("key====:", key)
 
 			//if len(value.Witness) <= 1 {
