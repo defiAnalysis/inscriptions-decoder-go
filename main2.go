@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/btcsuite/btcd/rpcclient"
 	"inscription-decoder/util"
-	"strings"
 )
 
 type Transaction1 struct {
@@ -39,38 +38,48 @@ func GetBlock(height int64) error {
 		return err
 	}
 
-	for _, rawTx := range rawBlock.Transactions {
-		for _, value := range rawTx.TxIn {
-			if len(value.Witness) <= 1 {
-				continue
-			}
-
-			if len(value.Witness[1]) < 40 || !isInscribed(value.Witness[1]) {
-				continue
-			}
-
-			transaction := Transaction1{
-				Hash:        value.PreviousOutPoint.Hash.String(),
-				Index:       value.PreviousOutPoint.Index,
-				Txinwitness: value.Witness[1],
-			}
-
-			datatype, data, err := ExtractOrdFile(transaction.Txinwitness)
-
-			if err != nil {
-				continue
-			}
-			//println("block", sl.Height(), "has tx", tx.Hash.String(), "len", string(typ), "-", len(data), "bytes")
-			if true {
-				ext := datatype
-				tps := strings.SplitN(string(datatype), "/", 2)
-				if len(tps) == 2 {
-					ext = tps[1]
-				}
-
-				fmt.Println("Hash: %s,type:%s,data:%s", transaction.Hash, transaction.Index, ext, string(data))
-			}
+	for key, rawTx := range rawBlock.Transactions {
+		if key > 3 {
+			return nil
 		}
+		fmt.Println("Index:", rawTx.TxHash().String())
+		for id, value := range rawTx.TxIn {
+			fmt.Println("input id:", id)
+			fmt.Println("Hash:", value.PreviousOutPoint.Hash)
+			fmt.Println("Index:", value.PreviousOutPoint.Index)
+
+			//if len(value.Witness) <= 1 {
+			//	continue
+			//}
+			//
+			//if len(value.Witness[1]) < 40 || !isInscribed(value.Witness[1]) {
+			//	continue
+			//}
+			//
+			//transaction := Transaction1{
+			//	Hash:        value.PreviousOutPoint.Hash.String(),
+			//	Index:       value.PreviousOutPoint.Index,
+			//	Txinwitness: value.Witness[1],
+			//}
+			//
+			//datatype, data, err := ExtractOrdFile(transaction.Txinwitness)
+			//
+			//if err != nil {
+			//	continue
+			//}
+			////println("block", sl.Height(), "has tx", tx.Hash.String(), "len", string(typ), "-", len(data), "bytes")
+			//if true {
+			//	ext := datatype
+			//	tps := strings.SplitN(string(datatype), "/", 2)
+			//	if len(tps) == 2 {
+			//		ext = tps[1]
+			//	}
+			//
+			//	fmt.Println("Hash: %s,type:%s,data:%s", transaction.Hash, transaction.Index, ext, string(data))
+			//}
+		}
+
+		fmt.Println("==============================")
 	}
 
 	return nil
@@ -144,11 +153,15 @@ func isInscribed(s []byte) bool {
 	return bytes.Contains(s, isncPattern)
 }
 
-func main() {
+func main1() {
 	if err := GetBlock(793980); err != nil {
 		fmt.Println("err:", err.Error())
 		return
 	}
 
 	fmt.Println("end======================")
+}
+
+func main() {
+
 }

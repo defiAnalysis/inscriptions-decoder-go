@@ -1,10 +1,9 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
+	"github.com/btcsuite/btcd/rpcclient"
 	"log"
-	"net/http"
 )
 
 type Transaction struct {
@@ -34,47 +33,36 @@ type Block struct {
 
 func main() {
 	// 替换为您的比特币节点的URL和区块哈希
-	nodeURL := "http://localhost:8332"
-	blockHash := "22e97ecac38499addbb1140c0a1500b9959f4ac3224791d2f6e28f7d55472d7b"
-
-	// 发起HTTP请求获取区块数据
-	resp, err := http.Get(nodeURL + "/rest/block/" + blockHash + ".json")
-	if err != nil {
-		fmt.Println("=====================")
-		log.Fatal(err)
+	connCfg := &rpcclient.ConnConfig{
+		Host:         "localhost:8332",
+		User:         "coreincp",
+		Pass:         "oHGkzaGPRPcWX3xz",
+		HTTPPostMode: true,
+		DisableTLS:   true,
 	}
-	defer resp.Body.Close()
 
-	// 解析HTTP响应的JSON数据
-	var block Block
-	err = json.NewDecoder(resp.Body).Decode(&block)
+	client, _ := rpcclient.New(connCfg, nil)
+
+	blockHash, err := client.GetBlockHash(793980)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Println("block:", block)
+	block, err := client.GetBlock(blockHash)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// 遍历每个交易并打印详细信息
 	for _, tx := range block.Transactions {
-		fmt.Println("Transaction ID:", tx.TxID)
-		fmt.Println("Value:", tx.Value)
-		fmt.Println("Address:", tx.Address)
+		txHash := tx.TxHash()
+		fmt.Printf("TxID: %s\n", txHash.String())
 
-		fmt.Println("Inputs:")
-		for _, input := range tx.Inputs {
-			fmt.Println("  TxID:", input.TxID)
-			fmt.Println("  Output:", input.Output)
-			fmt.Println("  PKScript:", input.PKScript)
-			fmt.Println("  Sequence:", input.Sequence)
-			fmt.Println("  Witness:", input.Witness)
+		// 输出交易输入信息
+		for _, input := range tx.TxIn {
+			fmt.Println("Input:")
+			fmt.Printf("  TxID: %s\n", input.PreviousOutPoint.Hash.String())
+			fmt.Printf("  Output Index: %d\n", input.PreviousOutPoint.Index)
 		}
-
-		fmt.Println("Outputs:")
-		for _, output := range tx.Outputs {
-			fmt.Println("  Value:", output.Value)
-			fmt.Println("  Address:", output.Address)
-		}
-
-		fmt.Println("----------------------------------")
 	}
 }
