@@ -97,11 +97,14 @@ func GetBlock1(height int64) error {
 		if key > 3 {
 			return nil
 		}
-		fmt.Println("Index:", rawTx.TxHash().String())
+		fmt.Println("TxHash:", rawTx.TxHash().String())
 		for id, value := range rawTx.TxIn {
 			fmt.Println("input id:", id)
 			fmt.Println("Hash:", value.PreviousOutPoint.Hash)
 			fmt.Println("Index:", value.PreviousOutPoint.Index)
+
+			key := fmt.Sprintf("%s%d", value.PreviousOutPoint.Hash.String(), value.PreviousOutPoint.Index)
+			fmt.Println("key====:", key)
 
 			//if len(value.Witness) <= 1 {
 			//	continue
